@@ -46,7 +46,7 @@ pip install fastapi uvicorn
 
 ---
 
-## 1) Data Validation
+## 1 Data Validation
 
 **Input:** CSV file + target column name
 

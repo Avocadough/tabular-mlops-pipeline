@@ -1,0 +1,52 @@
+# --- Python basics ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.env
+.venv/
+venv/
+.env.*
+*.log
+
+# --- IDE / OS junk ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- MLflow & artifacts (ผลรัน/ไฟล์ใหญ่) ---
+mlruns/
+artifacts/
+# ถ้าต้องการเก็บเอกสาร/รายงานใน artifacts ให้ยกเว้นกลับบางไฟล์ (ตัวอย่าง):
+#!artifacts/reports/
+#!artifacts/reports/**
+
+# --- Datasets (เผื่อมีโฟลเดอร์อื่นในอนาคต) ---
+data/
+datasets/
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.pickle
+*.pkl
+*.joblib
+*.csv
+
+# ระบุชัด ๆ สำหรับไฟล์ที่สคริปต์สร้าง
+artifacts/fashion_mnist.csv
+artifacts/splits/train.csv
+artifacts/splits/val.csv
+artifacts/splits/test.csv
+
+# โมเดลที่เอาไว้เสิร์ฟ (ใหญ่ ไม่จำเป็นต้อง version ใน Git)
+artifacts/deploy/
+models/
+checkpoints/
+
+# --- Notebooks outputs ---
+*.ipynb_checkpoints/
