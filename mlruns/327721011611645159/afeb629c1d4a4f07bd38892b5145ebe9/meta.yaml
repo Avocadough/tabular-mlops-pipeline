@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Admin/Desktop/ml-ject/mlruns/327721011611645159/afeb629c1d4a4f07bd38892b5145ebe9/artifacts
+end_time: 1760269283854
+entry_point_name: ''
+experiment_id: '327721011611645159'
+lifecycle_stage: active
+run_id: afeb629c1d4a4f07bd38892b5145ebe9
+run_name: righteous-horse-65
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1760269283820
+status: 4
+tags: []
+user_id: Admin

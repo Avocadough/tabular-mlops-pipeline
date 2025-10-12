@@ -1,58 +1,63 @@
+
 import os
+import sys
+import json
 import pandas as pd
-from sklearn.datasets import load_wine
 from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
 import mlflow
 
-def preprocess_data(test_size=0.25, random_state=42):
-    """
-    Loads raw data, splits it into training and testing sets,
-    and logs the resulting datasets as artifacts in MLflow.
-    """
-    # Set the experiment name 
-    mlflow.set_experiment("Wine Quality - Data Preprocessing") 
+def preprocess(csv_path: str, target_col: str, out_dir: str = "processed_data", test_size: float = 0.2, random_state: int = 42):
+    mlflow.set_experiment("Fashion - Preprocessing")
+    with mlflow.start_run():
+        mlflow.set_tag("ml.step", "preprocessing")
+        mlflow.log_params({"csv_path": csv_path, "target_col": target_col, "test_size": test_size, "random_state": random_state})
 
-    with mlflow.start_run() as run:
-        run_id = run.info.run_id 
-        print(f"Starting data preprocessing run with run_id: {run_id}")
-        mlflow.set_tag("ml.step", "data_preprocessing")
+        df = pd.read_csv(csv_path)
+        assert target_col in df.columns, f"target_col '{target_col}' not in CSV"
+        X = df.drop(columns=[target_col])
+        y = df[target_col]
 
-        # 1. Load data as a DataFrame
-        wine_data = load_wine(as_frame=True)
-        df = wine_data.frame
+        cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+        num_cols = X.select_dtypes(include=["number", "bool"]).columns.tolist()
 
-        # 2. Split the data
-        X = df.drop('target', axis=1)
-        y = df['target']
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=test_size, random_state=random_state, stratify=y
+        num_pipe = Pipeline(steps=[("scaler", StandardScaler())])
+        cat_pipe = Pipeline(steps=[("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False))])
+
+        preprocessor = ColumnTransformer(
+            transformers=[
+                ("num", num_pipe, num_cols),
+                ("cat", cat_pipe, cat_cols),
+            ]
         )
 
-        # 3. Save processed data
-        processed_data_dir = "processed_data"
-        os.makedirs(processed_data_dir, exist_ok=True)
-        pd.concat([X_train, y_train], axis=1).to_csv(os.path.join(processed_data_dir, "train.csv"), index=False)
-        pd.concat([X_test, y_test], axis=1).to_csv(os.path.join(processed_data_dir, "test.csv"), index=False)
-        print(f"Saved processed data to '{processed_data_dir}' directory.")
+        # Fit on full data (or only train after split); we will fit on train to avoid leakage.
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state, stratify=y if y.nunique() > 1 else None)
 
-        # 4. Log parameters and metrics
-        mlflow.log_param("test_size", test_size)
-        mlflow.log_metric("training_set_rows", len(X_train))
-        mlflow.log_metric("test_set_rows", len(X_test))
+        # Persist splits
+        out = os.path.join(os.path.dirname(os.path.dirname(csv_path)), out_dir) if not os.path.isabs(out_dir) else out_dir
+        os.makedirs(out, exist_ok=True)
+        train_df = pd.concat([X_train, y_train], axis=1)
+        test_df  = pd.concat([X_test, y_test], axis=1)
+        train_path = os.path.join(out, "train.csv")
+        test_path = os.path.join(out, "test.csv")
+        train_df.to_csv(train_path, index=False)
+        test_df.to_csv(test_path, index=False)
 
-        # 5. Log artifacts
-        mlflow.log_artifacts(processed_data_dir, artifact_path="processed_data")
-        print("Logged processed data as artifacts in MLflow.")
-
-        print("-" * 50)
-        print(f"Data preprocessing run finished. Please use the following Run ID for the next step:")
-        print(f"Preprocessing Run ID: {run_id}")
-        print("-" * 50)
-
-        # Write run_id to GITHUB_OUTPUT
-        if "GITHUB_OUTPUT" in os.environ:
-            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-                print(f"run_id={run_id}", file=f)
+        mlflow.log_param("num_cols", ",".join(num_cols))
+        mlflow.log_param("cat_cols", ",".join(cat_cols))
+        mlflow.log_artifact(train_path, artifact_path="processed_data")
+        mlflow.log_artifact(test_path, artifact_path="processed_data")
+        print(json.dumps({"train_path": train_path, "test_path": test_path, "num_cols": num_cols, "cat_cols": cat_cols}, indent=2))
 
 if __name__ == "__main__":
-    preprocess_data()
+    # Usage: python scripts/02_data_preprocessing.py <csv_path> <target_col> [out_dir]
+    if len(sys.argv) < 3:
+        print("Usage: python scripts/02_data_preprocessing.py <csv_path> <target_col> [out_dir]")
+        sys.exit(1)
+    csv_path = sys.argv[1]
+    target_col = sys.argv[2]
+    out_dir = sys.argv[3] if len(sys.argv) > 3 else "processed_data"
+    preprocess(csv_path, target_col, out_dir)

@@ -1,47 +1,41 @@
+
+import os
+import sys
+import json
 import pandas as pd
-from sklearn.datasets import load_wine
 import mlflow
 
-def validate_data():
-    """
-    Loads the wine dataset, performs basic validation checks,
-    and logs the results to MLflow.
-    """
-    # Set the experiment name for this step
-    mlflow.set_experiment("Wine Quality - Data Validation")
 
+def validate_data(csv_path: str, target_col: str):
+    mlflow.set_experiment("Fashion - Data Validation")
     with mlflow.start_run():
-        print("Starting data validation run...")
         mlflow.set_tag("ml.step", "data_validation")
+        mlflow.log_param("csv_path", csv_path)
+        mlflow.log_param("target_col", target_col)
 
-        # 1. Load data as a Pandas DataFrame
-        wine_data = load_wine(as_frame=True)
-        df = wine_data.frame
-        print("Data loaded successfully.")
+        df = pd.read_csv(csv_path)
+        n_rows, n_cols = df.shape
 
-        # 2. Perform simple validation checks
-        num_rows, num_cols = df.shape
-        num_classes = df['target'].nunique()
-        missing_values = df.isnull().sum().sum()
+        summary = {
+            "n_rows": n_rows,
+            "n_cols": n_cols,
+            "columns": df.columns.tolist(),
+            "dtypes": {c: str(t) for c, t in df.dtypes.items()},
+            "missing_total": int(df.isnull().sum().sum()),
+            "missing_by_col": {c: int(v) for c, v in df.isnull().sum().items()},
+        }
 
-        print(f"Dataset shape: {num_rows} rows, {num_cols} columns")
-        print(f"Number of classes: {num_classes}")
-        print(f"Missing values: {missing_values}")
+        if target_col in df.columns:
+            y = df[target_col]
+            summary["target_unique"] = int(y.nunique())
+            summary["target_counts"] = {str(k): int(v) for k, v in y.value_counts(dropna=False).to_dict().items()}
 
-        # 3. Log validation results to MLflow
-        mlflow.log_metric("num_rows", num_rows)
-        mlflow.log_metric("num_cols", num_cols)
-        mlflow.log_metric("missing_values", missing_values)
-        mlflow.log_param("num_classes", num_classes)
-
-        # Check if the data passes our defined criteria
-        validation_status = "Success"
-        if missing_values > 0 or num_classes < 3:
-            validation_status = "Failed"
-
-        mlflow.log_param("validation_status", validation_status)
-        print(f"Validation status: {validation_status}")
-        print("Data validation run finished.")
+        mlflow.log_text(json.dumps(summary, indent=2), "validation_summary.json")
+        print(json.dumps(summary, indent=2))
 
 if __name__ == "__main__":
-    validate_data()
+    # Usage: python scripts/01_data_validation.py <csv_path> <target_col>
+    if len(sys.argv) != 3:
+        print("Usage: python scripts/01_data_validation.py <csv_path> <target_col>")
+        sys.exit(1)
+    validate_data(sys.argv[1], sys.argv[2])

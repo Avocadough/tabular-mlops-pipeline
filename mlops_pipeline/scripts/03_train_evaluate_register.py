@@ -1,82 +1,105 @@
-import sys
+
 import os
+import sys
+import json
 import pandas as pd
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
+import numpy as np
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score, log_loss
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
 import mlflow
 import mlflow.sklearn
-from mlflow.artifacts import download_artifacts
 
-def train_evaluate_register(preprocessing_run_id, C=1.0):
-    """
-    Loads preprocessed data, trains a model, evaluates it, and
-    registers the model in the MLflow Model Registry if it meets
-    the performance threshold.
-    """
-    ACCURACY_THRESHOLD = 0.1
-    mlflow.set_experiment("Wine Quality - Model Training")
+def load_splits(data_dir: str, target_col: str):
+    train = pd.read_csv(os.path.join(data_dir, "train.csv"))
+    test  = pd.read_csv(os.path.join(data_dir, "test.csv"))
+    X_train, y_train = train.drop(columns=[target_col]), train[target_col]
+    X_test,  y_test  = test.drop(columns=[target_col]),  test[target_col]
+    return X_train, X_test, y_train, y_test
 
-    with mlflow.start_run(run_name=f"logistic_regression_C_{C}"):
-        print(f"Starting training run with C={C}...")
-        mlflow.set_tag("ml.step", "model_training_evaluation")
-        mlflow.log_param("preprocessing_run_id", preprocessing_run_id)
+def build_pipeline(X: pd.DataFrame):
+    cat_cols = X.select_dtypes(include=["object", "category"]).columns.tolist()
+    num_cols = X.select_dtypes(include=["number", "bool"]).columns.tolist()
 
-        # Load artifacts
-        try:
-            local_artifact_path = download_artifacts(
-                run_id=preprocessing_run_id,
-                artifact_path="processed_data"
-            )
-            print(f"Artifacts downloaded to: {local_artifact_path}")
-            train_path = os.path.join(local_artifact_path, "train.csv")
-            test_path = os.path.join(local_artifact_path, "test.csv")
-            train_df = pd.read_csv(train_path)
-            test_df = pd.read_csv(test_path)
-            print("Successfully loaded data from downloaded artifacts.")
-        except Exception as e:
-            print(f"Error loading artifacts: {e}")
-            sys.exit(1)
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("num", StandardScaler(), num_cols),
+            ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+        ]
+    )
 
-        X_train = train_df.drop('target', axis=1)
-        y_train = train_df['target']
-        X_test = test_df.drop('target', axis=1)
-        y_test = test_df['target']
+    # Default model: RandomForest baseline
+    model = RandomForestClassifier(
+        n_estimators=300, max_depth=None, n_jobs=-1, random_state=42, class_weight="balanced_subsample"
+    )
 
-        # Train pipeline
-        pipeline = Pipeline([
-            ('scaler', StandardScaler()),
-            ('model', LogisticRegression(C=C, random_state=42, max_iter=10000))
-        ])
-        pipeline.fit(X_train, y_train)
+    clf = Pipeline(steps=[("prep", preprocessor), ("model", model)])
+    return clf
 
-        # Evaluate
-        y_pred = pipeline.predict(X_test)
-        acc = accuracy_score(y_test, y_pred)
-        print(f"Accuracy: {acc:.4f}")
+def evaluate_binary(y_true, y_prob, y_pred):
+    metrics = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision": precision_score(y_true, y_pred, zero_division=0),
+        "recall": recall_score(y_true, y_pred, zero_division=0),
+        "f1": f1_score(y_true, y_pred, zero_division=0),
+        "roc_auc": roc_auc_score(y_true, y_prob),
+        "log_loss": log_loss(y_true, np.clip(y_prob, 1e-7, 1-1e-7)),
+    }
+    return metrics
 
-        # Log results
-        mlflow.log_param("C", C)
-        mlflow.log_metric("accuracy", acc)
-        mlflow.sklearn.log_model(pipeline, "wine_classifier_pipeline")
+def evaluate_multiclass(y_true, y_prob, y_pred):
+    metrics = {
+        "accuracy": accuracy_score(y_true, y_pred),
+        "precision_macro": precision_score(y_true, y_pred, average="macro", zero_division=0),
+        "recall_macro": recall_score(y_true, y_pred, average="macro", zero_division=0),
+        "f1_macro": f1_score(y_true, y_pred, average="macro", zero_division=0),
+        "log_loss": log_loss(y_true, np.clip(y_prob, 1e-7, 1-1e-7)),
+    }
+    return metrics
 
-        # Register model
-        if acc >= ACCURACY_THRESHOLD:
-            print(f"Model accuracy ({acc:.4f}) meets the threshold. Registering model...")
-            model_uri = f"runs:/{mlflow.active_run().info.run_id}/wine_classifier_pipeline"
-            registered_model = mlflow.register_model(model_uri, "wine-classifier-prod")
-            print(f"Model registered as '{registered_model.name}' version {registered_model.version}")
+def main(data_dir: str, target_col: str, model_name: str = "fashion-classifier"):
+    mlflow.set_experiment("Fashion - Train/Evaluate/Register")
+    with mlflow.start_run():
+        mlflow.set_tag("ml.step", "train_evaluate_register")
+        mlflow.log_params({"data_dir": data_dir, "target_col": target_col, "model_name": model_name})
+
+        X_train, X_test, y_train, y_test = load_splits(data_dir, target_col)
+        num_classes = int(pd.Series(y_train).nunique())
+        is_binary = num_classes == 2
+
+        clf = build_pipeline(X_train)
+        clf.fit(X_train, y_train)
+
+        if is_binary:
+            prob = clf.predict_proba(X_test)[:,1]
         else:
-            print(f"Model accuracy ({acc:.4f}) is below the threshold. Not registering.")
+            prob = clf.predict_proba(X_test)
 
-        print("Training run finished.")
+        pred = clf.predict(X_test)
+
+        if is_binary:
+            metrics = evaluate_binary(y_test, prob, pred)
+        else:
+            # Convert to 2D probs for log_loss if needed
+            if prob.ndim == 1: # just in case
+                prob = np.vstack([1-prob, prob]).T
+            metrics = evaluate_multiclass(y_test, prob, pred)
+
+        for k, v in metrics.items():
+            mlflow.log_metric(k, float(v))
+
+        mlflow.sklearn.log_model(clf, artifact_path="model", registered_model_name=model_name)
+        print(json.dumps({"model_name": model_name, "metrics": metrics, "classes": num_classes}, indent=2))
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python scripts/03_train_evaluate_register.py <preprocessing_run_id> [C_value]")
+    # Usage: python scripts/03_train_evaluate_register.py <data_dir> <target_col> [model_name]
+    if len(sys.argv) < 3:
+        print("Usage: python scripts/03_train_evaluate_register.py <data_dir> <target_col> [model_name]")
         sys.exit(1)
-    
-    run_id = sys.argv[1]
-    c_value = float(sys.argv[2]) if len(sys.argv) > 2 else 1.0
-    train_evaluate_register(preprocessing_run_id=run_id, C=c_value)
+    data_dir = sys.argv[1]
+    target_col = sys.argv[2]
+    model_name = sys.argv[3] if len(sys.argv) > 3 else "fashion-classifier"
+    main(data_dir, target_col, model_name)

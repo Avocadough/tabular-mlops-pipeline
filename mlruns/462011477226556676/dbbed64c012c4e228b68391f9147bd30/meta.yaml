@@ -1,0 +1,14 @@
+artifact_uri: file:///C:/Users/Admin/Desktop/ml-ject/mlruns/462011477226556676/dbbed64c012c4e228b68391f9147bd30/artifacts
+end_time: 1760269320075
+entry_point_name: ''
+experiment_id: '462011477226556676'
+lifecycle_stage: active
+run_id: dbbed64c012c4e228b68391f9147bd30
+run_name: illustrious-carp-213
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1760269318288
+status: 4
+tags: []
+user_id: Admin
