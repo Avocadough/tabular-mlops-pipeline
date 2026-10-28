@@ -1,6 +1,13 @@
-# Tabular Classification with MLflow
-
-An MLOps prototype that validates a labelled CSV, trains a scikit-learn classifier and serves a registered model through FastAPI.
+<div align="center">
+  <h1>Tabular Classification with MLflow</h1>
+  <p>An MLOps prototype that validates a labelled CSV, trains a scikit-learn classifier and serves a registered model through FastAPI.</p>
+  <p>
+    <img src="https://img.shields.io/badge/scikit--learn-ML-F7931E?style=flat-square" alt="scikit-learn">
+    <img src="https://img.shields.io/badge/MLflow-Registry-0194E2?style=flat-square" alt="MLflow registry">
+    <img src="https://img.shields.io/badge/FastAPI-Inference-009688?style=flat-square" alt="FastAPI inference">
+  </p>
+  <p><a href="#workflow">Workflow</a> · <a href="#run-locally">Run locally</a> · <a href="#limits">Limits</a></p>
+</div>
 
 ## Workflow
 
