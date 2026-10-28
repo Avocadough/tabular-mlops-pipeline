@@ -1,169 +1,46 @@
+# Tabular Classification with MLflow
 
-# Fashion MLflow MLOps (Tabular) — with FastAPI Inference
+An MLOps prototype that validates a labelled CSV, trains a scikit-learn classifier and serves a registered model through FastAPI.
 
-This repo is a **dataset‑agnostic** MLOps template built around **MLflow** for tabular data (e.g., a fashion dataset in CSV).
-It contains a 3‑step training pipeline (validation → preprocessing → train/eval/register) and a **FastAPI** app for serving predictions from the **MLflow Model Registry**.
+## Workflow
 
-> If you want to serve **images** (e.g., Fashion‑MNIST), you'll need extra dependencies and a different training script. This template targets **tabular** data by default.
+The pipeline logs a data summary, makes a stratified train/test split, then fits numeric scaling and categorical encoding inside a Random Forest pipeline. It records classification metrics and registers the model with MLflow. A separate script assigns an alias to the latest model version.
 
----
+- [`mlops_pipeline/scripts/`](mlops_pipeline/scripts/) — validation, splitting, training/evaluation/registration and alias assignment.
+- [`mlops_pipeline/requirements.txt`](mlops_pipeline/requirements.txt) — pipeline dependencies.
+- [`app.py`](app.py) — FastAPI endpoints for model information, predictions and reload.
+- [`.github/workflows/main.yml`](.github/workflows/main.yml) — configured GitHub Actions workflow.
+- `mlruns/` and `processed_data/` — historical tracked artifacts; they do not establish performance on a new dataset.
 
-## Project Structure
+## Run locally
 
-```
-mlflow_github/
-├─ data/                      # put your raw CSV here (not versioned in this template)
-├─ processed_data/            # train/test splits written here by step 02
-├─ mlops_pipeline/
-│  ├─ scripts/
-│  │  ├─ 01_data_validation.py
-│  │  ├─ 02_data_preprocessing.py
-│  │  ├─ 03_train_evaluate_register.py
-│  │  └─ 04_transition_model.py
-│  └─ requirements.txt
-├─ mlruns/                    # local MLflow runs & registry (if using local backend)
-├─ app.py                     # FastAPI inference app (serves from MLflow registry)
-└─ README.md
-```
-
----
-
-## Environment
-
-Python 3.10+ recommended.
-
-Install dependencies:
-```bash
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r mlops_pipeline/requirements.txt
-```
-
-If you plan to run the FastAPI server:
-```bash
-pip install fastapi uvicorn
-# or: pip install -r mlops_pipeline/requirements.txt  # already includes fastapi & uvicorn if you kept the updated file
-```
-
----
-
-## 1 Data Validation
-
-**Input:** CSV file + target column name
+The original example CSV is not included. Supply your own labelled CSV, including a `target` column; use suitable class counts for a stratified split. The binary metric code assumes labels compatible with scikit-learn's default positive class. Commands below run from the repository root. Use a disposable copy: scripts write or replace split files and MLflow state. This workflow has not been rerun for this README.
 
 ```bash
+python -m venv .venv
+# Activate .venv for your shell, then:
+python -m pip install -r mlops_pipeline/requirements.txt
+# FastAPI and Uvicorn are not included in this revision's requirements file:
+python -m pip install fastapi uvicorn
+
 python mlops_pipeline/scripts/01_data_validation.py data/fashion.csv target
-```
-
-**What it does**
-- Reads the CSV
-- Reports columns, dtypes, missing values, class distribution (if target is present)
-- Logs a `validation_summary.json` to MLflow
-
-Set your tracking location if needed:
-```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000   # example using remote MLflow server
-```
-
----
-
-## 2) Preprocessing & Split
-
-```bash
-python mlops_pipeline/scripts/02_data_preprocessing.py data/fashion.csv target
-```
-
-**What it does**
-- Infers numeric vs categorical columns
-- Applies `StandardScaler` (numeric) and `OneHotEncoder` (categorical)
-- Generates `processed_data/train.csv` and `processed_data/test.csv`
-- Logs artifacts to MLflow
-
----
-
-## 3) Train, Evaluate, Register
-
-```bash
+python mlops_pipeline/scripts/02_data_preprocessing.py data/fashion.csv target "$(pwd)/processed_data"
 python mlops_pipeline/scripts/03_train_evaluate_register.py processed_data target fashion-classifier
-```
-
-**What it does**
-- Builds a `ColumnTransformer` + `RandomForestClassifier` pipeline
-- Evaluates (binary or multiclass)
-- Logs metrics
-- **Registers** the model to MLflow Model Registry as `fashion-classifier`
-
-> If using a remote tracking server + registry, ensure envs:
-> - `MLFLOW_TRACKING_URI`
-> - `MLFLOW_S3_ENDPOINT_URL` (if using S3/minio for artifact store)
-> - Credentials for artifact store (e.g., AWS/MINIO keys)
-
----
-
-## 4) Transition Model Alias (optional)
-
-Mark the latest production model with an alias, e.g. `prod`:
-
-```bash
 python mlops_pipeline/scripts/04_transition_model.py fashion-classifier prod
 ```
 
-Now your server can load `models:/fashion-classifier/prod`.
+The absolute output path in the preprocessing command avoids the script's path-relative output resolution. In PowerShell, use `"$((Get-Location).Path)/processed_data"` instead of `"$(pwd)/processed_data"`.
 
----
+The app's default URI uses `/prod` as a stage-style path; use the alias URI explicitly after registration:
 
-## FastAPI Inference Server
-
-### Run
 ```bash
-# Make sure you've set the MLflow URI if using a registry (optional if local default):
-# export MLFLOW_TRACKING_URI=http://localhost:5000
-
-# Optional: set which model to load
-# export MODEL_NAME=fashion-classifier
-# export MODEL_STAGE=prod          # or "staging" or a numeric VERSION
-# Optional: override with a direct model URI:
-# export MODEL_URI=models:/fashion-classifier/prod
-
-uvicorn app:app --host 0.0.0.0 --port 8000
+# bash / zsh; in PowerShell use $env:MODEL_URI = 'models:/fashion-classifier@prod'
+export MODEL_URI='models:/fashion-classifier@prod'
+uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-### Endpoints
-- `GET /health` → health check
-- `GET /model` → which model URI is currently loaded
-- `POST /predict`
-  ```json
-  {
-    "instances": [
-      {"feature_a": 1.0, "feature_b": "x", "feature_c": 0.5},
-      {"feature_a": 2.0, "feature_b": "y", "feature_c": 1.5}
-    ]
-  }
-  ```
-  **Response**
-  ```json
-  {"predictions": [0, 2]}
-  ```
-- `POST /predict_proba` (if model exposes `predict_proba`)
-  ```json
-  {"probabilities": [[0.1, 0.9], [0.7, 0.3]]}
-  ```
-- `POST /reload` → Reload model (optionally with new `model_name`, `model_stage` or `model_uri` in body)
+Visit `/docs` for request schemas. `GET /health` reports whether the model loaded; `POST /predict` expects an `instances` list of objects whose keys match the training CSV features. `/predict_proba` requires the loaded model to expose probabilities; `/reload` attempts to load a new model URI or configuration.
 
-### Notes
-- The server expects **tabular** inputs (list of JSON objects). It converts them to a Pandas `DataFrame` before calling the model.
-- Use `MODEL_URI` env var to hard‑point to a specific run’s artifact if you don’t have a registry.
-- If your registry is local (inside this repo’s `mlruns/`), the default MLflow client should find it without extra envs.
+## Limits
 
----
-
-## Troubleshooting
-
-- **Model not found**: Ensure the registry has a registered model/version or set `MODEL_URI` to a direct artifact path.
-- **predict_proba missing**: Some models don’t implement it. Use `/predict` or pick a classifier that supports probabilities.
-- **Schema mismatch**: Your request JSON keys must align with training features (after preprocessing).
-
----
-
-## License
-
-MIT (adjust as needed).
+The project illustrates a pipeline, not a verified production service. Dataset quality, suitable splits, external data rights, model quality and serving compatibility depend on the supplied data and environment. The Actions workflow is configured in the repository; its current success has not been checked. The previous README stated `MIT (adjust as needed)`; no separate LICENSE file is present. Confirm the intended license terms before reuse.
