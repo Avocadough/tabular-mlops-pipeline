@@ -50,4 +50,8 @@ Visit `/docs` for request schemas. `GET /health` reports whether the model loade
 
 ## Limits
 
-The project illustrates a pipeline, not a verified production service. Dataset quality, suitable splits, external data rights, model quality and serving compatibility depend on the supplied data and environment. The Actions workflow is configured in the repository; its current success has not been checked. The previous README stated `MIT (adjust as needed)`; no separate LICENSE file is present. Confirm the intended license terms before reuse.
+The project illustrates a pipeline, not a verified production service. Dataset quality, suitable splits, external data rights, model quality and serving compatibility depend on the supplied data and environment.
+
+The checked-in Actions workflow does not match these scripts: validation and preprocessing are invoked without their required CSV path and target arguments. Training references a preprocessing run ID instead of its required data directory and target, but this preprocessing script does not publish a run ID as a workflow output. The alias step also names `wine-classifier-prod`, not the default model in this project. The workflow was not run in this review.
+
+The previous README stated `MIT (adjust as needed)`; no separate LICENSE file is present. Confirm the intended license terms before reuse.
